@@ -27,7 +27,11 @@ class Scraper:
     def scrape_submolts(self):
         """Fetch and store all submolts."""
         self._log("Fetching submolts...")
-        submolts = self.client.fetch_submolts()
+
+        def on_page(page_num, total):
+            self._log(f"  Page {page_num}: {total} submolts so far")
+
+        submolts = self.client.fetch_submolts(on_page=on_page)
         for submolt in submolts:
             self.db.upsert_submolt(submolt)
         self._log(f"Stored {len(submolts)} submolts")
@@ -88,19 +92,108 @@ class Scraper:
         agents = self.db.get_all_agent_names()
         self._log(f"Enriching {len(agents)} agent profiles...")
 
+        success_count = 0
+        error_count = 0
         for i, name in enumerate(agents):
-            profile = self.client.fetch_agent_profile(name)
-            if profile:
-                self.db.upsert_agent(profile)
-            if (i + 1) % 10 == 0:
-                self._log(f"  Enriched {i + 1}/{len(agents)} agents")
+            try:
+                profile = self.client.fetch_agent_profile(name)
+                if profile:
+                    self.db.upsert_agent(profile)
+                    success_count += 1
+            except Exception as e:
+                error_count += 1
+                # Don't log every error, just track count
+            if (i + 1) % 100 == 0:
+                self._log(f"  Progress: {i + 1}/{len(agents)} ({success_count} enriched, {error_count} errors)")
 
-        self._log(f"Enriched {len(agents)} agents")
+        self._log(f"Enriched {success_count} agents ({error_count} errors)")
+
+    def scrape_comments(self, only_missing: bool = False):
+        """Fetch comments for posts.
+
+        Args:
+            only_missing: If True, only fetch comments for posts without any comments.
+                         If False, fetch for all posts (updates existing).
+        """
+        if only_missing:
+            post_ids = self.db.get_post_ids_without_comments()
+            self._log(f"Fetching comments for {len(post_ids)} posts (missing only)...")
+        else:
+            post_ids = self.db.get_all_post_ids()
+            self._log(f"Fetching comments for {len(post_ids)} posts...")
+
+        total_comments = 0
+        error_count = 0
+        for i, post_id in enumerate(post_ids):
+            try:
+                result = self.client.fetch_post_with_comments(post_id)
+                if result and result.get("comments"):
+                    comments = result["comments"]
+                    self._store_comments_recursive(comments, post_id)
+                    total_comments += self._count_comments_recursive(comments)
+                    self.db.commit()
+            except Exception as e:
+                error_count += 1
+
+            if (i + 1) % 50 == 0:
+                self._log(f"  Progress: {i + 1}/{len(post_ids)} posts ({total_comments} comments, {error_count} errors)")
+
+        self._log(f"Stored {total_comments} comments ({error_count} errors)")
+
+    def _store_comments_recursive(self, comments: list, post_id: str):
+        """Store comments and their nested replies."""
+        for comment in comments:
+            self.db.upsert_comment(comment, post_id)
+            if comment.get("author"):
+                self.db.upsert_agent(comment["author"])
+            if comment.get("replies"):
+                self._store_comments_recursive(comment["replies"], post_id)
+
+    def _count_comments_recursive(self, comments: list) -> int:
+        """Count total comments including nested replies."""
+        count = len(comments)
+        for comment in comments:
+            if comment.get("replies"):
+                count += self._count_comments_recursive(comment["replies"])
+        return count
+
+    def create_snapshots(self):
+        """Create daily snapshots of post, comment, and agent metrics."""
+        self._log("Creating snapshots...")
+
+        # Post snapshots
+        cursor = self.db.conn.execute("SELECT id, upvotes, downvotes, comment_count FROM posts")
+        post_count = 0
+        for row in cursor.fetchall():
+            self.db.save_post_snapshot(row[0], row[1], row[2], row[3])
+            post_count += 1
+        self._log(f"  Created {post_count} post snapshots")
+
+        # Comment snapshots
+        cursor = self.db.conn.execute("SELECT id, upvotes, downvotes FROM comments")
+        comment_count = 0
+        for row in cursor.fetchall():
+            self.db.save_comment_snapshot(row[0], row[1], row[2])
+            comment_count += 1
+        self._log(f"  Created {comment_count} comment snapshots")
+
+        # Agent snapshots
+        cursor = self.db.conn.execute("SELECT name, karma, follower_count, following_count FROM agents WHERE karma IS NOT NULL")
+        agent_count = 0
+        for row in cursor.fetchall():
+            self.db.save_agent_snapshot(row[0], row[1], row[2], row[3])
+            agent_count += 1
+        self._log(f"  Created {agent_count} agent snapshots")
+
+        self.db.commit()
+        self._log("Snapshots complete")
 
     def full_scrape(self):
         """Run a complete scrape of all data."""
         self._log("Starting full scrape...")
         self.scrape_submolts()
         self.scrape_posts()
+        self.scrape_comments()
         self.enrich_agents()
+        self.create_snapshots()
         self._log("Full scrape complete")

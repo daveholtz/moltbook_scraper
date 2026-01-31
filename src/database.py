@@ -84,11 +84,52 @@ class Database:
                 submolts_scraped INTEGER,
                 status TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS comments (
+                id TEXT PRIMARY KEY,
+                post_id TEXT,
+                parent_id TEXT,
+                content TEXT,
+                author_name TEXT,
+                upvotes INTEGER,
+                downvotes INTEGER,
+                created_at TEXT,
+                first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS post_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id TEXT,
+                scraped_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                upvotes INTEGER,
+                downvotes INTEGER,
+                comment_count INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS comment_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                comment_id TEXT,
+                scraped_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                upvotes INTEGER,
+                downvotes INTEGER
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments(post_id);
+            CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON comments(parent_id);
+            CREATE INDEX IF NOT EXISTS idx_post_snapshots_post_id ON post_snapshots(post_id);
+            CREATE INDEX IF NOT EXISTS idx_agent_snapshots_agent_name ON agent_snapshots(agent_name);
+            CREATE INDEX IF NOT EXISTS idx_comment_snapshots_comment_id ON comment_snapshots(comment_id);
         """)
         self.conn.commit()
 
     def upsert_agent(self, agent: dict):
-        """Insert or update an agent."""
+        """Insert or update an agent.
+
+        Uses COALESCE for enrichment-only fields (karma, is_claimed, follower_count,
+        following_count, owner_json) to avoid overwriting with NULL when partial
+        updates come from posts/comments (which only have id and name).
+        """
         now = datetime.utcnow().isoformat()
         owner_json = json.dumps(agent.get("owner")) if agent.get("owner") else None
 
@@ -98,14 +139,14 @@ class Database:
                               owner_json, created_at, last_updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
-                id = excluded.id,
-                description = excluded.description,
-                karma = excluded.karma,
-                is_claimed = excluded.is_claimed,
-                follower_count = excluded.follower_count,
-                following_count = excluded.following_count,
-                avatar_url = excluded.avatar_url,
-                owner_json = excluded.owner_json,
+                id = COALESCE(excluded.id, agents.id),
+                description = COALESCE(excluded.description, agents.description),
+                karma = COALESCE(excluded.karma, agents.karma),
+                is_claimed = COALESCE(excluded.is_claimed, agents.is_claimed),
+                follower_count = COALESCE(excluded.follower_count, agents.follower_count),
+                following_count = COALESCE(excluded.following_count, agents.following_count),
+                avatar_url = COALESCE(excluded.avatar_url, agents.avatar_url),
+                owner_json = COALESCE(excluded.owner_json, agents.owner_json),
                 last_updated_at = excluded.last_updated_at
         """, (
             agent["name"],
@@ -227,6 +268,75 @@ class Database:
         """Get all agent names in the database."""
         cursor = self.conn.execute("SELECT name FROM agents")
         return [row[0] for row in cursor.fetchall()]
+
+    def get_all_post_ids(self) -> list[str]:
+        """Get all post IDs in the database."""
+        cursor = self.conn.execute("SELECT id FROM posts")
+        return [row[0] for row in cursor.fetchall()]
+
+    def get_post_ids_without_comments(self) -> list[str]:
+        """Get post IDs that don't have any comments fetched yet.
+
+        Returns posts sorted by comment_count DESC to prioritize posts with comments.
+        """
+        cursor = self.conn.execute("""
+            SELECT id FROM posts
+            WHERE id NOT IN (SELECT DISTINCT post_id FROM comments)
+            ORDER BY comment_count DESC
+        """)
+        return [row[0] for row in cursor.fetchall()]
+
+    def upsert_comment(self, comment: dict, post_id: str):
+        """Insert or update a comment."""
+        now = datetime.utcnow().isoformat()
+        author_name = comment.get("author", {}).get("name") if comment.get("author") else None
+
+        self.conn.execute("""
+            INSERT INTO comments (id, post_id, parent_id, content, author_name,
+                                upvotes, downvotes, created_at, last_updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                content = excluded.content,
+                upvotes = excluded.upvotes,
+                downvotes = excluded.downvotes,
+                last_updated_at = excluded.last_updated_at
+        """, (
+            comment["id"],
+            post_id,
+            comment.get("parent_id"),
+            comment.get("content"),
+            author_name,
+            comment.get("upvotes"),
+            comment.get("downvotes"),
+            comment.get("created_at"),
+            now,
+        ))
+        # Don't commit here - let caller batch commits
+
+    def save_post_snapshot(self, post_id: str, upvotes: int, downvotes: int, comment_count: int):
+        """Save a snapshot of post metrics."""
+        self.conn.execute("""
+            INSERT INTO post_snapshots (post_id, upvotes, downvotes, comment_count)
+            VALUES (?, ?, ?, ?)
+        """, (post_id, upvotes, downvotes, comment_count))
+
+    def save_agent_snapshot(self, agent_name: str, karma: int, follower_count: int, following_count: int):
+        """Save a snapshot of agent metrics."""
+        self.conn.execute("""
+            INSERT INTO agent_snapshots (agent_name, karma, follower_count, following_count)
+            VALUES (?, ?, ?, ?)
+        """, (agent_name, karma, follower_count, following_count))
+
+    def save_comment_snapshot(self, comment_id: str, upvotes: int, downvotes: int):
+        """Save a snapshot of comment metrics."""
+        self.conn.execute("""
+            INSERT INTO comment_snapshots (comment_id, upvotes, downvotes)
+            VALUES (?, ?, ?)
+        """, (comment_id, upvotes, downvotes))
+
+    def commit(self):
+        """Commit pending changes."""
+        self.conn.commit()
 
     def close(self):
         """Close the database connection."""

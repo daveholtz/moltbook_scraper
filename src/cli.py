@@ -26,7 +26,7 @@ def main():
     )
     parser.add_argument(
         "command",
-        choices=["full", "incremental", "submolts", "posts", "enrich", "status"],
+        choices=["full", "incremental", "submolts", "posts", "comments", "enrich", "snapshots", "status"],
         help="Scrape command to run",
     )
     parser.add_argument(
@@ -38,6 +38,11 @@ def main():
         "--quiet", "-q",
         action="store_true",
         help="Suppress progress messages",
+    )
+    parser.add_argument(
+        "--only-missing",
+        action="store_true",
+        help="For comments: only fetch for posts without comments yet",
     )
     args = parser.parse_args()
 
@@ -54,6 +59,12 @@ def main():
         agents = conn.execute("SELECT COUNT(*) FROM agents").fetchone()[0]
         posts = conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0]
         submolts = conn.execute("SELECT COUNT(*) FROM submolts").fetchone()[0]
+        comments = conn.execute("SELECT COUNT(*) FROM comments").fetchone()[0]
+
+        # Snapshot counts
+        agent_snaps = conn.execute("SELECT COUNT(*) FROM agent_snapshots").fetchone()[0]
+        post_snaps = conn.execute("SELECT COUNT(*) FROM post_snapshots").fetchone()[0]
+        comment_snaps = conn.execute("SELECT COUNT(*) FROM comment_snapshots").fetchone()[0]
 
         # Get latest activity
         latest_post = conn.execute(
@@ -67,6 +78,8 @@ def main():
         print(f"  Agents:   {agents:,}")
         print(f"  Posts:    {posts:,}")
         print(f"  Submolts: {submolts:,}")
+        print(f"  Comments: {comments:,}")
+        print(f"  Snapshots: {agent_snaps:,} agent, {post_snaps:,} post, {comment_snaps:,} comment")
         if latest_post:
             print(f"  Latest post: {latest_post[0]}")
         if latest_agent:
@@ -104,6 +117,16 @@ def main():
             log("Enriching agent profiles...")
             scraper.enrich_agents()
             log("Agent enrichment complete.")
+
+        elif args.command == "comments":
+            log("Scraping comments...")
+            scraper.scrape_comments(only_missing=args.only_missing)
+            log("Comments scrape complete.")
+
+        elif args.command == "snapshots":
+            log("Creating snapshots...")
+            scraper.create_snapshots()
+            log("Snapshots complete.")
 
     except KeyboardInterrupt:
         log("Interrupted by user.")

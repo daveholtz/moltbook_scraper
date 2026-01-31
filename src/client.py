@@ -58,12 +58,35 @@ class MoltbookClient:
         # Should not reach here
         raise RateLimitError("Max retries exceeded")
 
-    def fetch_submolts(self) -> list[dict]:
-        """Fetch all submolts from the API."""
-        response = self._request("GET", f"{self.BASE_URL}/submolts")
-        response.raise_for_status()
-        data = response.json()
-        return data["submolts"]
+    def fetch_submolts(
+        self,
+        on_page: Optional[Callable[[int, int], None]] = None,
+    ) -> list[dict]:
+        """Fetch all submolts, paginating through all pages.
+
+        Args:
+            on_page: Optional callback called with (page_num, submolts_so_far)
+        """
+        all_submolts = []
+        offset = 0
+        page = 0
+        while True:
+            params = {"offset": offset} if offset > 0 else {}
+            response = self._request("GET", f"{self.BASE_URL}/submolts", params=params)
+            response.raise_for_status()
+            data = response.json()
+            submolts = data.get("submolts", [])
+            if not submolts:
+                break
+            all_submolts.extend(submolts)
+            page += 1
+            if on_page:
+                on_page(page, len(all_submolts))
+            # If we got fewer than 100 (the apparent page size), we're done
+            if len(submolts) < 100:
+                break
+            offset += len(submolts)
+        return all_submolts
 
     def fetch_posts(self, offset: int = 0) -> list[dict]:
         """Fetch a page of posts from the API."""
@@ -113,3 +136,20 @@ class MoltbookClient:
         if not data.get("success", False):
             return None
         return data["agent"]
+
+    def fetch_post_with_comments(self, post_id: str) -> Optional[dict]:
+        """Fetch a post with its comments. Returns None if not found."""
+        response = self._request(
+            "GET",
+            f"{self.BASE_URL}/posts/{post_id}"
+        )
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        data = response.json()
+        if not data.get("success", False):
+            return None
+        return {
+            "post": data.get("post"),
+            "comments": data.get("comments", []),
+        }

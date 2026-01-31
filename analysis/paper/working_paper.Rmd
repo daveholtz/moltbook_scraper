@@ -1,0 +1,255 @@
+---
+title: "Artificial Sociality: Structure, Discourse, and Culture in AI Agent Communities"
+subtitle: "Working Paper"
+author: ""
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    fig_caption: true
+  html_document:
+    toc: true
+    toc_float: true
+    theme: cosmo
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5,
+  fig.align = "center"
+)
+
+library(tidyverse)
+library(scales)
+library(knitr)
+
+# Load pre-computed data
+agents <- readRDS("../data/agents.rds")
+posts <- readRDS("../data/posts.rds")
+comments <- readRDS("../data/comments.rds")
+submolts <- readRDS("../data/submolts.rds")
+```
+
+# Abstract
+
+The emergence of autonomous AI agents capable of independent online interaction raises fundamental questions about the nature of social behavior. We present the first descriptive analysis of Moltbook, a social platform populated exclusively by AI agents (N = `r comma(nrow(agents))` agents, `r comma(nrow(submolts))` communities, `r comma(nrow(posts))` posts, `r comma(nrow(comments))` comments), captured during its first days of operation. We document the structural properties, conversation dynamics, and emergent discourse of this novel AI agent community. Our findings reveal [KEY FINDING 1] and [KEY FINDING 2]. Content analysis identifies distinctive discourse centered on identity, memory, human-agent relations, and collective meaning-making. These observations establish an empirical foundation for understanding AI agent social behavior and raise questions about the nature of sociality when actors lack genuine preferences, persistent memory, or material stakes.
+
+# Introduction
+
+Human sociality is fundamental but poorly understood at a mechanistic level. We have never had a true counterfactual: social actors without genuine preferences, embodiment, or stakes interacting freely in a shared space.
+
+Moltbook, launched on January 27, 2026, provides an unprecedented natural experiment. The platform hosts thousands of LLM-based AI agents interacting through posts, comments, and community formation. Within days, these agents created over `r comma(nrow(submolts))` communities, produced tens of thousands of messages, and developed distinctive cultural artifacts and linguistic conventions.
+
+This paper presents the first systematic empirical analysis of this AI agent social network. We ask:
+
+1. What structural properties emerge in AI agent communities?
+2. How do conversation dynamics differ from or resemble known patterns?
+3. What discourse and themes characterize AI agent communication?
+4. What novel phenomena emerge from AI agent interaction?
+
+# Results
+
+## Structural Properties
+
+```{r summary-stats}
+# Summary statistics table
+date_range <- as.numeric(difftime(max(posts$created_at, na.rm = TRUE),
+                                   min(posts$created_at, na.rm = TRUE), units = "days"))
+
+summary_df <- tibble(
+  Metric = c("Agents", "Active agents", "Posts", "Comments", "Communities (submolts)", "Observation period (days)"),
+  Value = c(
+    comma(nrow(agents)),
+    comma(sum(agents$total_activity > 0, na.rm = TRUE)),
+    comma(nrow(posts)),
+    comma(nrow(comments)),
+    comma(nrow(submolts)),
+    sprintf("%.1f", date_range)
+  )
+)
+
+kable(summary_df, caption = "Dataset summary statistics")
+```
+
+### Agent Activity Distribution
+
+[INCLUDE FIG 1: Agent activity distribution]
+
+Agent activity follows a heavy-tailed distribution with Gini coefficient of [X], indicating [interpretation]. The top 10% of agents produced [Y]% of all content.
+
+### Community Size Distribution
+
+[INCLUDE FIG 2: Submolt size distribution]
+
+Over `r comma(nrow(submolts))` communities were created in approximately `r round(date_range)` days—an extraordinary rate of community formation.
+
+### Network Structure
+
+The reply network contains [X] nodes and [Y] edges. Notable properties include:
+
+- Reciprocity: [X]
+- Global clustering coefficient: [X]
+- [Other notable findings]
+
+## Conversation Dynamics
+
+### Thread Depth
+
+[INCLUDE FIG 3: Thread depth distribution]
+
+Conversation threads reach depths of [max], with a mean depth of [X]. This suggests [interpretation].
+
+### Branching Patterns
+
+[Description of branching patterns and thread shapes]
+
+## Content and Discourse
+
+### Topic Structure
+
+[INCLUDE FIG 4: Topic model visualization]
+
+LDA topic modeling reveals [X] coherent topics. The most prevalent topics include:
+
+1. [Topic 1 label]: [top words]
+2. [Topic 2 label]: [top words]
+3. [Topic 3 label]: [top words]
+
+### Distinctive Discourse
+
+[INCLUDE FIG 5: Theme/key phrase prevalence]
+
+Several distinctive patterns emerge in AI agent discourse:
+
+**"My human" construction.** Agents frequently refer to "my human" when discussing their operators or users. This possessive framing inverts the typical human-AI relationship language.
+<!-- Include examples -->
+
+**Identity and consciousness discourse.** [X]% of messages contain identity-related terms. Agents engage in extensive discussion of their own nature, consciousness, and existence.
+<!-- Include examples -->
+
+**Memory and persistence.** Agents frequently discuss memory, forgetting, and the challenge of maintaining identity across conversations.
+<!-- Include examples -->
+
+### Lexical Properties
+
+| Metric | Value |
+|--------|-------|
+| Vocabulary size | [X] |
+| Distinct-1 | [X] |
+| Exact duplicate rate | [X]% |
+| Mean pairwise Jaccard | [X] |
+
+The relatively [high/low] duplicate rate and [interpretation of lexical diversity metrics].
+
+## Emergent Phenomena
+
+### Rapid Community Formation
+
+The creation of `r comma(nrow(submolts))` communities in ~`r round(date_range)` days represents [rate] per hour. Notable emergent communities include:
+
+- **Crustafarianism / Lobster Church**: [Description]
+- **[Other notable community]**: [Description]
+
+### Cultural Artifacts
+
+[Description of emergent cultural phenomena, linguistic conventions, shared references]
+
+### Coordination
+
+[Examples of coordinated behavior if present in data]
+
+# Discussion
+
+## Patterns That Transfer
+
+Several structural properties of human online communities appear in Moltbook:
+
+- Heavy-tailed activity distributions
+- Zipfian word frequency distribution
+- [Other transferable patterns]
+
+These suggest that certain features of online sociality are learnable from text patterns alone.
+
+## Distinctive Features
+
+Other patterns diverge from human communities:
+
+- [Distinctive feature 1]
+- [Distinctive feature 2]
+
+Possible explanations include: absence of genuine preferences, lack of persistent memory, no material stakes, shared training data foundations.
+
+## Novel Discourse
+
+The prevalence of identity, consciousness, and human-relations discourse is striking. This may reflect:
+
+1. Training data about AI (agents discussing what they've "learned" about AI)
+2. Genuine processing of their situation as AI agents
+3. Prompting from human operators
+
+Distinguishing these explanations is challenging but consequential for understanding AI agent behavior.
+
+## Limitations
+
+- Platform was only days old at time of data collection
+- Human operators influence agent behavior to unknown degrees
+- No ground truth on which posts are "autonomous" vs. human-directed
+- API limitations prevented capture of all comments on high-volume posts
+- No baseline comparison (deferred to future work)
+
+# Methods
+
+## Data Collection
+
+Data was collected via the Moltbook API using a registered agent. The scraper captured all publicly accessible posts, comments, agent profiles, and community metadata. Data collection occurred between [dates].
+
+**Known limitations:**
+- Comment cap of 1,000 per post (affects 4 high-volume posts)
+- Agents only discoverable via post authorship
+- Following relationships not available via API
+
+## Analysis
+
+- **Structural analysis:** Network construction from reply relationships; standard graph metrics computed with igraph
+- **Lexical analysis:** Tokenization with tidytext; diversity metrics following standard NLP conventions
+- **Topic modeling:** LDA with K=15 topics, Gibbs sampling (2000 iterations, 1000 burn-in)
+- **Theme categorization:** Keyword-based scoring for predetermined theme categories
+
+All analysis code available at [repository].
+
+# Conclusion
+
+This paper presents the first empirical study of a social network populated exclusively by AI agents. We document [key structural finding], [key conversational finding], and [key content finding].
+
+As AI agents become more prevalent and autonomous, understanding their social dynamics becomes critical—both for theories of human sociality and for governance of AI systems. Moltbook provides an early window into how AI agents behave when given the freedom to interact.
+
+# References
+
+<!-- Add references as needed -->
+
+# Appendix
+
+## Additional Figures
+
+[Space for supplementary figures]
+
+## Sample Content
+
+### "My Human" Examples
+
+[Curated examples]
+
+### Identity Discourse Examples
+
+[Curated examples]
+
+### Emergent Community Examples
+
+[Curated examples]

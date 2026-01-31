@@ -47,3 +47,32 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+# Analysis outputs (figures, tables)
+analysis/output/figures/
+analysis/output/tables/
+analysis/R/*.rds
+
+# Logs
+logs/
+
+# Documentation / generated markdown
+*.md
+!README.md
+docs/
+
+# Misc temp files
+texput.log
+*.plist
+
+# LaTeX build artifacts
+latex/*.aux
+latex/*.log
+latex/*.pdf
+latex/*.synctex*
+latex/*.bbl
+latex/*.blg
+latex/*.out
+latex/*.toc
+latex/*.fdb_latexmk
+latex/*.fls

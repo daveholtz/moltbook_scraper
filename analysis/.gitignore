@@ -1,0 +1,19 @@
+# Processed data (regenerate from source DB)
+data/
+
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# Output artifacts (keep code, regenerate outputs)
+output/figures/*.png
+output/figures/*.pdf
+output/tables/*.md
+output/tables/*.tex
+
+# Paper compilation artifacts
+paper/*.pdf
+paper/*.html
+paper/*.log
+paper/*.aux
