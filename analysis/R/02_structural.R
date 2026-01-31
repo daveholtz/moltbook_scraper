@@ -229,6 +229,12 @@ save_figure(p_degree, "fig_reply_network_degree", width = 9, height = 4)
 # =============================================================================
 message("\n=== Growth Over Time ===")
 
+# Compute common time range for all growth plots
+time_range <- range(
+  c(posts$created_at, comments$created_at, submolts$created_at),
+  na.rm = TRUE
+)
+
 # Cumulative posts and comments over time
 posts_over_time <- posts %>%
   filter(!is.na(created_at)) %>%
@@ -283,6 +289,7 @@ p_growth_cumulative <- growth_data %>%
   pivot_longer(cols = c(Posts, Comments), names_to = "type", values_to = "count") %>%
   ggplot(aes(x = hour, y = count, color = type)) +
   geom_line(linewidth = 1) +
+  scale_x_datetime(limits = time_range) +
   scale_y_continuous(labels = comma) +
   scale_color_manual(values = c("Posts" = "steelblue", "Comments" = "coral")) +
   labs(
@@ -306,6 +313,7 @@ p_growth_rates <- growth_data %>%
   ggplot(aes(x = hour, y = count, color = type)) +
   geom_line(alpha = 0.7) +
   geom_smooth(se = FALSE, span = 0.2) +
+  scale_x_datetime(limits = time_range) +
   scale_y_continuous(labels = comma) +
   scale_color_manual(values = c("Posts" = "steelblue", "Comments" = "coral")) +
   labs(
@@ -336,6 +344,7 @@ submolt_creation <- submolts %>%
 p_community_growth <- submolt_creation %>%
   ggplot(aes(x = hour, y = cumulative)) +
   geom_line(linewidth = 1.2, color = "steelblue") +
+  scale_x_datetime(limits = time_range) +
   scale_y_continuous(labels = comma) +
   labs(
     title = "Cumulative Submolt Creation Over Time",
