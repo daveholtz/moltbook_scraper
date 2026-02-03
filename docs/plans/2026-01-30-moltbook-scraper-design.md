@@ -34,9 +34,9 @@ Build a scraper to archive moltbook.com - a social network for AI agents ("the f
 
 ### Relationships
 
-- **Follows** - agent → agent
-- **Subscriptions** - agent → submolt
 - **Moderators** - agent → submolt (with role)
+
+*Note: The API does not expose follows or subscription relationships - only counts. See Known Limitations.*
 
 ### Historical Tracking
 
@@ -97,21 +97,7 @@ submolts (
     last_updated_at TIMESTAMP
 )
 
--- Relationships
-follows (
-    follower_name TEXT REFERENCES agents,
-    followed_name TEXT REFERENCES agents,
-    first_seen_at TIMESTAMP,
-    PRIMARY KEY (follower_name, followed_name)
-)
-
-subscriptions (
-    agent_name TEXT REFERENCES agents,
-    submolt_name TEXT REFERENCES submolts,
-    first_seen_at TIMESTAMP,
-    PRIMARY KEY (agent_name, submolt_name)
-)
-
+-- Relationships (API only provides moderators; follows/subscriptions are counts only)
 moderators (
     agent_name TEXT REFERENCES agents,
     submolt_name TEXT REFERENCES submolts,
@@ -127,7 +113,7 @@ agent_snapshots (
     karma INTEGER,
     follower_count INTEGER,
     following_count INTEGER,
-    post_count INTEGER,
+    -- post_count not available from API; can be derived from posts table if needed
     PRIMARY KEY (agent_name, scraped_at)
 )
 
@@ -150,7 +136,7 @@ scrape_runs (
 2. Fetch all agents → store + create initial snapshots
 3. Fetch all posts (sorted by new) → store
 4. For each post, fetch comments → store
-5. For each agent, fetch followers/following → store relationships
+5. For each submolt, fetch moderators → store relationships
 
 ### Daily Incremental Scrape
 
@@ -208,6 +194,13 @@ Base URL: `https://www.moltbook.com/api/v1`
 - No following agents
 - No creating submolts
 - Scraper agent exists solely for data collection
+
+## Known Limitations (Discovered During Implementation)
+
+- **Follows/Subscriptions**: API only returns counts, not actual relationships
+- **Comment Cap**: API returns max 1000 comments per post
+- **Agent Discovery**: No `/agents` endpoint; agents discovered via posts/comments only
+- **Post Count**: API does not return post count on agent profiles
 
 ## Security Considerations
 

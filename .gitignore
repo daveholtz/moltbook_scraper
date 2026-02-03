@@ -53,6 +53,9 @@ analysis/output/figures/
 analysis/output/tables/
 analysis/R/*.rds
 
+# Snapshots (docs, data archives)
+snapshots/
+
 # Logs
 logs/
 
