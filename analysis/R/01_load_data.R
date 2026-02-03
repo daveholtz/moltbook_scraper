@@ -3,8 +3,9 @@
 # Run this script first to create the data objects used by other scripts.
 # Outputs: saves processed dataframes to analysis/data/ for quick reloading.
 #
-# NOTE: Uses SNAPSHOT data for reproducibility. Data is filtered to the
-# snapshot timestamp and vote/karma values come from snapshot tables.
+# NOTE: Uses the most recent SNAPSHOT data from the database. Data is filtered
+# to the snapshot timestamp and vote/karma values come from snapshot tables.
+# If no snapshots exist, run: python -m src.cli snapshots --db moltbook.db
 
 source("utils.R")
 
@@ -17,14 +18,22 @@ library(lubridate)
 message("Connecting to database...")
 con <- connect_db()
 
-# --- Use fixed snapshot timestamp for reproducibility ---
-# Available snapshots: 00:54:50, 01:51:56, 11:30:20, 17:08:17
-# Using 11:30:20 which has complete data for posts, comments, and agents
-SNAPSHOT_TIME <- "2026-01-31 11:30:20"
+# --- Get most recent snapshot timestamp from database ---
+# Query each snapshot table for its most recent timestamp
+get_latest_snapshot_time <- function(con, table_name) {
+  query <- sprintf("SELECT MAX(scraped_at) as latest FROM %s", table_name)
+  result <- dbGetQuery(con, query)
+  result$latest[1]
+}
 
-agent_snapshot_time <- SNAPSHOT_TIME
-post_snapshot_time <- SNAPSHOT_TIME
-comment_snapshot_time <- SNAPSHOT_TIME
+agent_snapshot_time <- get_latest_snapshot_time(con, "agent_snapshots")
+post_snapshot_time <- get_latest_snapshot_time(con, "post_snapshots")
+comment_snapshot_time <- get_latest_snapshot_time(con, "comment_snapshots")
+
+# Check that snapshots exist
+if (is.na(agent_snapshot_time)) stop("No agent snapshots found in database. Run: python -m src.cli snapshots --db moltbook.db")
+if (is.na(post_snapshot_time)) stop("No post snapshots found in database. Run: python -m src.cli snapshots --db moltbook.db")
+if (is.na(comment_snapshot_time)) stop("No comment snapshots found in database. Run: python -m src.cli snapshots --db moltbook.db")
 
 message(sprintf("Using agent snapshot from: %s", agent_snapshot_time))
 message(sprintf("Using post snapshot from: %s", post_snapshot_time))
