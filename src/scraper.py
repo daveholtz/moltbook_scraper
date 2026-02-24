@@ -2,7 +2,7 @@
 
 from typing import Optional, Callable
 
-from src.client import MoltbookClient
+from src.client import MoltbookClient, _normalize_agent
 from src.database import Database
 
 
@@ -55,7 +55,7 @@ class Scraper:
             self._log(f"Skipping {entity} validation (platform reports 0)")
             return
 
-        # Comments have a known 1000-comment-per-post cap in the API,
+        # Comments have a known ~200-comment-per-request cap in the API,
         # so we can never reach the platform's reported total.
         # Allow up to 20% gap for comments.
         if entity == "comments":
@@ -100,6 +100,11 @@ class Scraper:
 
         def on_page(page_num, submolts):
             for submolt in submolts:
+                # Normalize created_by agent if present
+                if submolt.get("created_by") and isinstance(submolt["created_by"], dict):
+                    agent = _normalize_agent(submolt["created_by"])
+                    if agent.get("name"):
+                        self.db.upsert_agent(agent)
                 self.db.upsert_submolt(submolt)
             self.db.commit()
             total_saved[0] += len(submolts)
@@ -124,7 +129,9 @@ class Scraper:
             for post in posts:
                 self.db.upsert_post(post)
                 if post.get("author"):
-                    self.db.upsert_agent(post["author"])
+                    self.db.upsert_agent(_normalize_agent(post["author"]))
+                if post.get("submolt") and isinstance(post["submolt"], dict):
+                    self.db.upsert_submolt(post["submolt"])
             self.db.commit()
             total_saved[0] += len(posts)
             self._log(f"  Page {page_num}: saved {len(posts)} posts ({total_saved[0]} unique total)")
@@ -136,18 +143,19 @@ class Scraper:
         self._validate_count("posts", total_saved[0])
 
     def scrape_posts_incremental(self) -> int:
-        """Fetch only new posts, stopping when we hit known posts.
+        """Fetch only new posts using cursor-based pagination, stopping when we hit known posts.
 
         Returns:
             Number of new posts found.
         """
         self._log("Fetching new posts (incremental)...")
         new_count = 0
-        offset = 0
+        cursor = None
 
         try:
             while True:
-                posts = self.client.fetch_posts(offset=offset)
+                result = self.client.fetch_posts(cursor=cursor)
+                posts = result["posts"]
                 if not posts:
                     break
 
@@ -161,14 +169,20 @@ class Scraper:
                     # New post - store it
                     self.db.upsert_post(post)
                     if post.get("author"):
-                        self.db.upsert_agent(post["author"])
+                        self.db.upsert_agent(_normalize_agent(post["author"]))
+                    if post.get("submolt") and isinstance(post["submolt"], dict):
+                        self.db.upsert_submolt(post["submolt"])
                     new_count += 1
 
                 if found_known:
                     # We hit known posts, stop pagination
                     break
 
-                offset += 25
+                if not result["has_more"]:
+                    break
+                cursor = result["next_cursor"]
+                if not cursor:
+                    break
 
             self.db.commit()
             self._log(f"Found {new_count} new posts")
@@ -193,7 +207,16 @@ class Scraper:
             try:
                 moderators = self.client.fetch_submolt_moderators(name)
                 for mod in moderators:
-                    agent_name = mod.get("agent", {}).get("name") or mod.get("name")
+                    # Normalize the embedded agent object if present
+                    agent_obj = mod.get("agent", {})
+                    if isinstance(agent_obj, dict) and agent_obj:
+                        normalized = _normalize_agent(agent_obj)
+                        agent_name = normalized.get("name")
+                        if agent_name:
+                            self.db.upsert_agent(normalized)
+                    else:
+                        agent_name = mod.get("name")
+
                     if agent_name:
                         self.db.upsert_moderator(name, agent_name, mod.get("role"))
                         total_mods += 1
@@ -226,6 +249,33 @@ class Scraper:
                 self._log(f"  Progress: {i + 1}/{len(agents)} ({success_count} enriched, {error_count} errors)")
 
         self._log(f"Enriched {success_count} agents ({error_count} errors)")
+
+    def enrich_submolts(self):
+        """Fetch full details for all known submolts via /submolts/{name}."""
+        submolts = self.db.get_all_submolt_names()
+        self._log(f"Enriching {len(submolts)} submolt profiles...")
+
+        success_count = 0
+        error_count = 0
+        for i, name in enumerate(submolts):
+            try:
+                detail = self.client.fetch_submolt_detail(name)
+                if detail:
+                    # Normalize and upsert the created_by agent if present
+                    if detail.get("created_by") and isinstance(detail["created_by"], dict):
+                        agent = _normalize_agent(detail["created_by"])
+                        if agent.get("name"):
+                            self.db.upsert_agent(agent)
+                    self.db.upsert_submolt(detail)
+                    success_count += 1
+            except Exception:
+                error_count += 1
+            if (i + 1) % 100 == 0:
+                self.db.commit()
+                self._log(f"  Progress: {i + 1}/{len(submolts)} ({success_count} enriched, {error_count} errors)")
+
+        self.db.commit()
+        self._log(f"Enriched {success_count} submolts ({error_count} errors)")
 
     def scrape_comments(self, only_missing: bool = False):
         """Fetch comments for posts.
@@ -274,7 +324,7 @@ class Scraper:
         for comment in comments:
             self.db.upsert_comment(comment, post_id)
             if comment.get("author"):
-                self.db.upsert_agent(comment["author"])
+                self.db.upsert_agent(_normalize_agent(comment["author"]))
             if comment.get("replies"):
                 self._store_comments_recursive(comment["replies"], post_id)
 
@@ -297,7 +347,8 @@ class Scraper:
         # Post snapshots
         cursor = self.db.conn.execute("""
             SELECT id, title, content, url, author_name, submolt_name,
-                   upvotes, downvotes, comment_count, is_pinned, created_at
+                   upvotes, downvotes, comment_count, is_pinned, created_at,
+                   type, score, hot_score, is_locked, is_deleted, updated_at
             FROM posts
         """)
         post_count = 0
@@ -314,6 +365,12 @@ class Scraper:
                 "comment_count": row[8],
                 "is_pinned": row[9],
                 "created_at": row[10],
+                "type": row[11],
+                "score": row[12],
+                "hot_score": row[13],
+                "is_locked": row[14],
+                "is_deleted": row[15],
+                "updated_at": row[16],
             }, scrape_run_id)
             post_count += 1
         self._log(f"  Created {post_count} post snapshots")
@@ -321,7 +378,8 @@ class Scraper:
         # Comment snapshots
         cursor = self.db.conn.execute("""
             SELECT id, post_id, parent_id, content, author_name,
-                   upvotes, downvotes, created_at
+                   upvotes, downvotes, created_at,
+                   score, reply_count, is_deleted, depth, updated_at
             FROM comments
         """)
         comment_count = 0
@@ -335,6 +393,11 @@ class Scraper:
                 "upvotes": row[5],
                 "downvotes": row[6],
                 "created_at": row[7],
+                "score": row[8],
+                "reply_count": row[9],
+                "is_deleted": row[10],
+                "depth": row[11],
+                "updated_at": row[12],
             }, scrape_run_id)
             comment_count += 1
         self._log(f"  Created {comment_count} comment snapshots")
@@ -343,7 +406,9 @@ class Scraper:
         cursor = self.db.conn.execute("""
             SELECT name, id, description, karma, is_claimed,
                    follower_count, following_count, avatar_url,
-                   owner_json, metadata_json, created_at
+                   owner_json, metadata_json, created_at,
+                   display_name, posts_count, comments_count, is_verified,
+                   is_active, last_active, claimed_by
             FROM agents
         """)
         agent_count = 0
@@ -360,6 +425,13 @@ class Scraper:
                 "owner_json": row[8],
                 "metadata_json": row[9],
                 "created_at": row[10],
+                "display_name": row[11],
+                "posts_count": row[12],
+                "comments_count": row[13],
+                "is_verified": row[14],
+                "is_active": row[15],
+                "last_active": row[16],
+                "claimed_by": row[17],
             }, scrape_run_id)
             agent_count += 1
         self._log(f"  Created {agent_count} agent snapshots")
@@ -367,7 +439,8 @@ class Scraper:
         # Submolt snapshots
         cursor = self.db.conn.execute("""
             SELECT name, id, display_name, description, subscriber_count,
-                   avatar_url, banner_url, created_by_name, created_at, last_activity_at
+                   avatar_url, banner_url, created_by_name, created_at, last_activity_at,
+                   creator_id, post_count, is_nsfw, is_private
             FROM submolts
         """)
         submolt_count = 0
@@ -383,6 +456,10 @@ class Scraper:
                 "created_by_name": row[7],
                 "created_at": row[8],
                 "last_activity_at": row[9],
+                "creator_id": row[10],
+                "post_count": row[11],
+                "is_nsfw": row[12],
+                "is_private": row[13],
             }, scrape_run_id)
             submolt_count += 1
         self._log(f"  Created {submolt_count} submolt snapshots")
@@ -410,12 +487,8 @@ class Scraper:
 
         try:
             # Scrape each entity type, continuing even if validation fails
-            try:
-                self.scrape_submolts()
-            except ValidationError as e:
-                self._log(f"Validation warning: {e}")
-                validation_failures.append("submolts")
-
+            # Posts are scraped first - they seed both agents and submolts.
+            # Submolts are then enriched individually via /submolts/{name}.
             try:
                 self.scrape_posts()
             except ValidationError as e:
@@ -430,6 +503,7 @@ class Scraper:
 
             self.scrape_moderators()
             self.enrich_agents()
+            self.enrich_submolts()
             self.create_snapshots(scrape_run_id=run_id)
 
             # Get final counts

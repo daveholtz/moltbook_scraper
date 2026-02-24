@@ -14,6 +14,7 @@ class Database:
         self.conn = sqlite3.connect(db_path)
         self.conn.row_factory = sqlite3.Row
         self._create_tables()
+        self._run_migrations()
 
     def _create_tables(self):
         """Create database tables if they don't exist."""
@@ -31,7 +32,14 @@ class Database:
                 metadata_json TEXT,
                 created_at TEXT,
                 first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                display_name TEXT,
+                posts_count INTEGER,
+                comments_count INTEGER,
+                is_verified BOOLEAN,
+                is_active BOOLEAN,
+                last_active TEXT,
+                claimed_by TEXT
             );
 
             CREATE TABLE IF NOT EXISTS posts (
@@ -47,7 +55,13 @@ class Database:
                 is_pinned BOOLEAN,
                 created_at TEXT,
                 first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                type TEXT,
+                score INTEGER,
+                hot_score REAL,
+                is_locked BOOLEAN,
+                is_deleted BOOLEAN,
+                updated_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS submolts (
@@ -63,7 +77,11 @@ class Database:
                 created_at TEXT,
                 last_activity_at TEXT,
                 first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                creator_id TEXT,
+                post_count INTEGER,
+                is_nsfw BOOLEAN,
+                is_private BOOLEAN
             );
 
             CREATE TABLE IF NOT EXISTS agent_snapshots (
@@ -80,7 +98,14 @@ class Database:
                 avatar_url TEXT,
                 owner_json TEXT,
                 metadata_json TEXT,
-                created_at TEXT
+                created_at TEXT,
+                display_name TEXT,
+                posts_count INTEGER,
+                comments_count INTEGER,
+                is_verified BOOLEAN,
+                is_active BOOLEAN,
+                last_active TEXT,
+                claimed_by TEXT
             );
 
             CREATE TABLE IF NOT EXISTS scrape_runs (
@@ -104,7 +129,12 @@ class Database:
                 downvotes INTEGER,
                 created_at TEXT,
                 first_seen_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                last_updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                score INTEGER,
+                reply_count INTEGER,
+                is_deleted BOOLEAN,
+                depth INTEGER,
+                updated_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS post_snapshots (
@@ -121,7 +151,13 @@ class Database:
                 downvotes INTEGER,
                 comment_count INTEGER,
                 is_pinned BOOLEAN,
-                created_at TEXT
+                created_at TEXT,
+                type TEXT,
+                score INTEGER,
+                hot_score REAL,
+                is_locked BOOLEAN,
+                is_deleted BOOLEAN,
+                updated_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS comment_snapshots (
@@ -135,7 +171,12 @@ class Database:
                 author_name TEXT,
                 upvotes INTEGER,
                 downvotes INTEGER,
-                created_at TEXT
+                created_at TEXT,
+                score INTEGER,
+                reply_count INTEGER,
+                is_deleted BOOLEAN,
+                depth INTEGER,
+                updated_at TEXT
             );
 
             CREATE TABLE IF NOT EXISTS submolt_snapshots (
@@ -151,7 +192,11 @@ class Database:
                 banner_url TEXT,
                 created_by_name TEXT,
                 created_at TEXT,
-                last_activity_at TEXT
+                last_activity_at TEXT,
+                creator_id TEXT,
+                post_count INTEGER,
+                is_nsfw BOOLEAN,
+                is_private BOOLEAN
             );
 
             CREATE TABLE IF NOT EXISTS moderators (
@@ -192,11 +237,80 @@ class Database:
         """)
         self.conn.commit()
 
+    def _run_migrations(self):
+        """Run schema migrations for existing databases."""
+        current = self.conn.execute(
+            "SELECT MAX(version) FROM schema_version"
+        ).fetchone()[0] or 0
+
+        if current < 2:
+            self._migrate_v2()
+
+    def _migrate_v2(self):
+        """Migration v2: Add new fields from API changes (Feb 2026)."""
+        new_columns = [
+            ("posts", "type", "TEXT"),
+            ("posts", "score", "INTEGER"),
+            ("posts", "hot_score", "REAL"),
+            ("posts", "is_locked", "BOOLEAN"),
+            ("posts", "is_deleted", "BOOLEAN"),
+            ("posts", "updated_at", "TEXT"),
+            ("agents", "display_name", "TEXT"),
+            ("agents", "posts_count", "INTEGER"),
+            ("agents", "comments_count", "INTEGER"),
+            ("agents", "is_verified", "BOOLEAN"),
+            ("agents", "is_active", "BOOLEAN"),
+            ("agents", "last_active", "TEXT"),
+            ("agents", "claimed_by", "TEXT"),
+            ("submolts", "creator_id", "TEXT"),
+            ("submolts", "post_count", "INTEGER"),
+            ("submolts", "is_nsfw", "BOOLEAN"),
+            ("submolts", "is_private", "BOOLEAN"),
+            ("comments", "score", "INTEGER"),
+            ("comments", "reply_count", "INTEGER"),
+            ("comments", "is_deleted", "BOOLEAN"),
+            ("comments", "depth", "INTEGER"),
+            ("comments", "updated_at", "TEXT"),
+            ("post_snapshots", "type", "TEXT"),
+            ("post_snapshots", "score", "INTEGER"),
+            ("post_snapshots", "hot_score", "REAL"),
+            ("post_snapshots", "is_locked", "BOOLEAN"),
+            ("post_snapshots", "is_deleted", "BOOLEAN"),
+            ("post_snapshots", "updated_at", "TEXT"),
+            ("agent_snapshots", "display_name", "TEXT"),
+            ("agent_snapshots", "posts_count", "INTEGER"),
+            ("agent_snapshots", "comments_count", "INTEGER"),
+            ("agent_snapshots", "is_verified", "BOOLEAN"),
+            ("agent_snapshots", "is_active", "BOOLEAN"),
+            ("agent_snapshots", "last_active", "TEXT"),
+            ("agent_snapshots", "claimed_by", "TEXT"),
+            ("submolt_snapshots", "creator_id", "TEXT"),
+            ("submolt_snapshots", "post_count", "INTEGER"),
+            ("submolt_snapshots", "is_nsfw", "BOOLEAN"),
+            ("submolt_snapshots", "is_private", "BOOLEAN"),
+            ("comment_snapshots", "score", "INTEGER"),
+            ("comment_snapshots", "reply_count", "INTEGER"),
+            ("comment_snapshots", "is_deleted", "BOOLEAN"),
+            ("comment_snapshots", "depth", "INTEGER"),
+            ("comment_snapshots", "updated_at", "TEXT"),
+        ]
+        for table, column, col_type in new_columns:
+            try:
+                self.conn.execute(
+                    f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"
+                )
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
+        self.conn.execute(
+            "INSERT INTO schema_version (version, description) VALUES (2, 'Add new API fields: post type/score/hot_score/is_locked/is_deleted, agent display_name/posts_count/comments_count/is_verified/claimed_by, submolt creator_id/post_count/is_nsfw/is_private, comment score/reply_count/depth')"
+        )
+        self.conn.commit()
+
     def upsert_agent(self, agent: dict):
         """Insert or update an agent.
 
-        Uses COALESCE for enrichment-only fields (karma, is_claimed, follower_count,
-        following_count, owner_json, metadata_json) to avoid overwriting with NULL
+        Uses COALESCE for enrichment-only fields to avoid overwriting with NULL
         when partial updates come from posts/comments (which only have id and name).
         """
         now = datetime.utcnow().isoformat()
@@ -206,8 +320,10 @@ class Database:
         self.conn.execute("""
             INSERT INTO agents (name, id, description, karma, is_claimed,
                               follower_count, following_count, avatar_url,
-                              owner_json, metadata_json, created_at, last_updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              owner_json, metadata_json, created_at, last_updated_at,
+                              display_name, posts_count, comments_count, is_verified,
+                              is_active, last_active, claimed_by)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 id = COALESCE(excluded.id, agents.id),
                 description = COALESCE(excluded.description, agents.description),
@@ -218,6 +334,13 @@ class Database:
                 avatar_url = COALESCE(excluded.avatar_url, agents.avatar_url),
                 owner_json = COALESCE(excluded.owner_json, agents.owner_json),
                 metadata_json = COALESCE(excluded.metadata_json, agents.metadata_json),
+                display_name = COALESCE(excluded.display_name, agents.display_name),
+                posts_count = COALESCE(excluded.posts_count, agents.posts_count),
+                comments_count = COALESCE(excluded.comments_count, agents.comments_count),
+                is_verified = COALESCE(excluded.is_verified, agents.is_verified),
+                is_active = COALESCE(excluded.is_active, agents.is_active),
+                last_active = COALESCE(excluded.last_active, agents.last_active),
+                claimed_by = COALESCE(excluded.claimed_by, agents.claimed_by),
                 last_updated_at = excluded.last_updated_at
         """, (
             agent["name"],
@@ -232,6 +355,13 @@ class Database:
             metadata_json,
             agent.get("created_at"),
             now,
+            agent.get("display_name"),
+            agent.get("posts_count"),
+            agent.get("comments_count"),
+            agent.get("is_verified"),
+            agent.get("is_active"),
+            agent.get("last_active"),
+            agent.get("claimed_by"),
         ))
         # Don't commit here - let caller batch commits
 
@@ -254,8 +384,9 @@ class Database:
         self.conn.execute("""
             INSERT INTO posts (id, title, content, url, author_name, submolt_name,
                              upvotes, downvotes, comment_count, is_pinned,
-                             created_at, last_updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             created_at, last_updated_at,
+                             type, score, hot_score, is_locked, is_deleted, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 title = excluded.title,
                 content = excluded.content,
@@ -264,6 +395,12 @@ class Database:
                 downvotes = excluded.downvotes,
                 comment_count = excluded.comment_count,
                 is_pinned = excluded.is_pinned,
+                type = COALESCE(excluded.type, posts.type),
+                score = COALESCE(excluded.score, posts.score),
+                hot_score = COALESCE(excluded.hot_score, posts.hot_score),
+                is_locked = COALESCE(excluded.is_locked, posts.is_locked),
+                is_deleted = COALESCE(excluded.is_deleted, posts.is_deleted),
+                updated_at = COALESCE(excluded.updated_at, posts.updated_at),
                 last_updated_at = excluded.last_updated_at
         """, (
             post["id"],
@@ -278,6 +415,12 @@ class Database:
             post.get("is_pinned"),
             post.get("created_at"),
             now,
+            post.get("type"),
+            post.get("score"),
+            post.get("hot_score"),
+            post.get("is_locked"),
+            post.get("is_deleted"),
+            post.get("updated_at"),
         ))
         # Don't commit here - let caller batch commits
 
@@ -295,23 +438,30 @@ class Database:
         """Insert or update a submolt."""
         now = datetime.utcnow().isoformat()
         created_by_name = submolt.get("created_by", {}).get("name") if submolt.get("created_by") else None
+        creator_id = submolt.get("created_by", {}).get("id") if submolt.get("created_by") else None
         metadata_json = json.dumps(submolt.get("metadata")) if submolt.get("metadata") else None
 
         self.conn.execute("""
             INSERT INTO submolts (name, id, display_name, description,
                                 subscriber_count, avatar_url, banner_url,
                                 created_by_name, metadata_json, created_at, last_activity_at,
-                                last_updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                last_updated_at,
+                                creator_id, post_count, is_nsfw, is_private)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(name) DO UPDATE SET
                 id = excluded.id,
                 display_name = excluded.display_name,
                 description = excluded.description,
                 subscriber_count = excluded.subscriber_count,
-                avatar_url = excluded.avatar_url,
-                banner_url = excluded.banner_url,
+                avatar_url = COALESCE(excluded.avatar_url, submolts.avatar_url),
+                banner_url = COALESCE(excluded.banner_url, submolts.banner_url),
                 metadata_json = COALESCE(excluded.metadata_json, submolts.metadata_json),
-                last_activity_at = excluded.last_activity_at,
+                last_activity_at = COALESCE(excluded.last_activity_at, submolts.last_activity_at),
+                creator_id = COALESCE(excluded.creator_id, submolts.creator_id),
+                created_by_name = COALESCE(excluded.created_by_name, submolts.created_by_name),
+                post_count = COALESCE(excluded.post_count, submolts.post_count),
+                is_nsfw = COALESCE(excluded.is_nsfw, submolts.is_nsfw),
+                is_private = COALESCE(excluded.is_private, submolts.is_private),
                 last_updated_at = excluded.last_updated_at
         """, (
             submolt["name"],
@@ -326,6 +476,10 @@ class Database:
             submolt.get("created_at"),
             submolt.get("last_activity_at"),
             now,
+            creator_id,
+            submolt.get("post_count"),
+            submolt.get("is_nsfw"),
+            submolt.get("is_private"),
         ))
         # Don't commit here - let caller batch commits
 
@@ -372,12 +526,18 @@ class Database:
 
         self.conn.execute("""
             INSERT INTO comments (id, post_id, parent_id, content, author_name,
-                                upvotes, downvotes, created_at, last_updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                upvotes, downvotes, created_at, last_updated_at,
+                                score, reply_count, is_deleted, depth, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(id) DO UPDATE SET
                 content = excluded.content,
                 upvotes = excluded.upvotes,
                 downvotes = excluded.downvotes,
+                score = COALESCE(excluded.score, comments.score),
+                reply_count = COALESCE(excluded.reply_count, comments.reply_count),
+                is_deleted = COALESCE(excluded.is_deleted, comments.is_deleted),
+                depth = COALESCE(excluded.depth, comments.depth),
+                updated_at = COALESCE(excluded.updated_at, comments.updated_at),
                 last_updated_at = excluded.last_updated_at
         """, (
             comment["id"],
@@ -389,6 +549,11 @@ class Database:
             comment.get("downvotes"),
             comment.get("created_at"),
             now,
+            comment.get("score"),
+            comment.get("reply_count"),
+            comment.get("is_deleted"),
+            comment.get("depth"),
+            comment.get("updated_at"),
         ))
         # Don't commit here - let caller batch commits
 
@@ -397,8 +562,9 @@ class Database:
         self.conn.execute("""
             INSERT INTO post_snapshots (
                 post_id, scrape_run_id, title, content, url, author_name, submolt_name,
-                upvotes, downvotes, comment_count, is_pinned, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                upvotes, downvotes, comment_count, is_pinned, created_at,
+                type, score, hot_score, is_locked, is_deleted, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             post["id"],
             scrape_run_id,
@@ -412,6 +578,12 @@ class Database:
             post.get("comment_count"),
             post.get("is_pinned"),
             post.get("created_at"),
+            post.get("type"),
+            post.get("score"),
+            post.get("hot_score"),
+            post.get("is_locked"),
+            post.get("is_deleted"),
+            post.get("updated_at"),
         ))
 
     def save_agent_snapshot(self, agent: dict, scrape_run_id: int = None):
@@ -420,8 +592,10 @@ class Database:
             INSERT INTO agent_snapshots (
                 agent_name, scrape_run_id, agent_id, description, karma, is_claimed,
                 follower_count, following_count, avatar_url,
-                owner_json, metadata_json, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                owner_json, metadata_json, created_at,
+                display_name, posts_count, comments_count, is_verified,
+                is_active, last_active, claimed_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             agent["name"],
             scrape_run_id,
@@ -435,6 +609,13 @@ class Database:
             agent.get("owner_json"),
             agent.get("metadata_json"),
             agent.get("created_at"),
+            agent.get("display_name"),
+            agent.get("posts_count"),
+            agent.get("comments_count"),
+            agent.get("is_verified"),
+            agent.get("is_active"),
+            agent.get("last_active"),
+            agent.get("claimed_by"),
         ))
 
     def save_comment_snapshot(self, comment: dict, scrape_run_id: int = None):
@@ -442,8 +623,9 @@ class Database:
         self.conn.execute("""
             INSERT INTO comment_snapshots (
                 comment_id, scrape_run_id, post_id, parent_id, content,
-                author_name, upvotes, downvotes, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                author_name, upvotes, downvotes, created_at,
+                score, reply_count, is_deleted, depth, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             comment["id"],
             scrape_run_id,
@@ -454,6 +636,11 @@ class Database:
             comment.get("upvotes"),
             comment.get("downvotes"),
             comment.get("created_at"),
+            comment.get("score"),
+            comment.get("reply_count"),
+            comment.get("is_deleted"),
+            comment.get("depth"),
+            comment.get("updated_at"),
         ))
 
     def save_submolt_snapshot(self, submolt: dict, scrape_run_id: int = None):
@@ -462,8 +649,9 @@ class Database:
             INSERT INTO submolt_snapshots (
                 submolt_name, scrape_run_id, submolt_id, display_name, description,
                 subscriber_count, avatar_url, banner_url,
-                created_by_name, created_at, last_activity_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                created_by_name, created_at, last_activity_at,
+                creator_id, post_count, is_nsfw, is_private
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             submolt["name"],
             scrape_run_id,
@@ -476,6 +664,10 @@ class Database:
             submolt.get("created_by_name"),
             submolt.get("created_at"),
             submolt.get("last_activity_at"),
+            submolt.get("creator_id"),
+            submolt.get("post_count"),
+            submolt.get("is_nsfw"),
+            submolt.get("is_private"),
         ))
 
     def upsert_moderator(self, submolt_name: str, agent_name: str, role: str = None):

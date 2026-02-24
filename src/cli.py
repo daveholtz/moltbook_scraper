@@ -153,9 +153,9 @@ def main():
             log(f"Incremental scrape complete. Found {new_posts} new posts.")
 
         elif args.command == "submolts":
-            log("Scraping submolts...")
-            scraper.scrape_submolts()
-            log("Submolts scrape complete.")
+            log("Enriching submolt profiles...")
+            scraper.enrich_submolts()
+            log("Submolts enrichment complete.")
 
         elif args.command == "posts":
             log("Scraping all posts...")
@@ -165,7 +165,9 @@ def main():
         elif args.command == "enrich":
             log("Enriching agent profiles...")
             scraper.enrich_agents()
-            log("Agent enrichment complete.")
+            log("Enriching submolt profiles...")
+            scraper.enrich_submolts()
+            log("Enrichment complete.")
 
         elif args.command == "comments":
             log("Scraping comments...")

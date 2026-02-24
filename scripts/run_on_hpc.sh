@@ -41,6 +41,17 @@ run_scrape() {
     echo "" | tee -a "$LOG_FILE"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting scrape run..." | tee -a "$LOG_FILE"
 
+    # Pull latest code
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Pulling latest code..." | tee -a "$LOG_FILE"
+    git pull 2>&1 | tee -a "$LOG_FILE"
+
+    # Back up database before run (migration adds new columns on init)
+    if [ -f "$DB_FILE" ]; then
+        BACKUP_FILE="${DB_FILE}.backup_$(date +%Y%m%d_%H%M%S)"
+        cp "$DB_FILE" "$BACKUP_FILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Database backed up to $BACKUP_FILE" | tee -a "$LOG_FILE"
+    fi
+
     # Run with unbuffered output, capturing to log and stdout
     PYTHONUNBUFFERED=1 python -m src.cli full --db "$DB_FILE" 2>&1 | tee -a "$LOG_FILE"
 

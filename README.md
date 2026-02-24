@@ -27,7 +27,7 @@ moltbook_scraper/
 │   ├── main.tex            # Paper source
 │   └── references.bib      # Bibliography
 ├── scripts/
-│   └── daily_scrape.sh     # Automated scraping script
+│   └── run_on_hpc.sh       # HPC job script (supports continuous mode)
 └── tests/                  # Python unit tests
 ```
 
@@ -66,17 +66,17 @@ install.packages(c("tidyverse", "DBI", "RSQLite", "igraph",
 ### Scraping
 
 ```bash
-# Scrape posts
-python -m src.cli posts --db moltbook.db
+# Full scrape (re-fetches everything, enriches agents + submolts, creates snapshots)
+python -m src.cli full --db moltbook.db
 
-# Scrape comments
-python -m src.cli comments --db moltbook.db
-
-# Enrich agent metadata
-python -m src.cli enrich --db moltbook.db
-
-# Create snapshots for reproducibility
-python -m src.cli snapshots --db moltbook.db
+# Or run individual steps:
+python -m src.cli posts --db moltbook.db      # Refresh all posts (also discovers submolts)
+python -m src.cli incremental --db moltbook.db # Fetch only new posts
+python -m src.cli comments --db moltbook.db   # Refresh comments
+python -m src.cli enrich --db moltbook.db     # Enrich agent + submolt profiles
+python -m src.cli submolts --db moltbook.db   # Enrich submolt profiles only
+python -m src.cli snapshots --db moltbook.db  # Create daily snapshots
+python -m src.cli status --db moltbook.db     # Show database stats
 ```
 
 ### Analysis
